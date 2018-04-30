@@ -149,13 +149,13 @@ pred = predict(svmradi,dat[-train,])
 table(predict = pred, truth = dat[-train,]$y)
 
 # Tune radial model
-tune.out = tune(svm,y~., data=dat[train,], kernel="radial", ranges = list(cost=10^(-1:3),gamma=c(0.5,1:4)))
-best = tune.out$best.model
-plot(best,dat[train,])
+#tune.out = tune(svm,y~., data=dat[train,], kernel="radial", ranges = list(cost=10^(-1:3),gamma=c(0.5,1:4)))
+#best = tune.out$best.model
+#plot(best,dat[train,])
 
 # Predict with best radial
-pred = predict(best,dat[-train,])
-table(predict = pred, truth = dat[-train,]$y)
+#pred = predict(best,dat[-train,])
+#table(predict = pred, truth = dat[-train,]$y)
 
 
 ################## TF-IDF Sentiment ##################### 
@@ -208,7 +208,7 @@ TF_IDF$IDF = log(num_tweets/TF_IDF_temp$Freq)
 TF_IDF$TF_IDF = TF_IDF$TF * TF_IDF$IDF
 
 # Remove overly common words
-test = TF_IDF[TF_IDF$IDF > 3.37,]
+TF_IDF = TF_IDF[TF_IDF$IDF > 3.37,]
 
 # Aggregate by index
 detach("package:plyr")
@@ -226,7 +226,7 @@ dat = data.frame(x=cbind(weighted_model$TF, weighted_model$IDF), y=as.factor(wei
 train = sample(data_size,train_size)
 
 # Radial
-svmradi = svm(y~.,data=dat[train,], kernel="radial", gamma=1, cost=1, cross = 10)
+svmradi = svm(y~.,data=dat[train,], kernel="radial", gamma=1, cost=1000)
 plot(svmradi, dat[train,])
 
 # Predict with radial
@@ -234,7 +234,7 @@ pred = predict(svmradi,dat[-train,])
 table(predict = pred, truth = dat[-train,]$y)
 
 # Tune radial model
-tune.out = tune(svm,y~., data=dat[train,], kernel="radial", ranges = list(cost=10^(-1:3),gamma=c(0.5,1:4)))
+tune.out = tune(svm,y~., data=dat[train,], kernel="radial", ranges = list(cost=10^(-1:2),gamma=c(0.5,1:4)))
 best = tune.out$best.model
 plot(best,dat[train,])
 
