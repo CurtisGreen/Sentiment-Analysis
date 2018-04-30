@@ -149,7 +149,7 @@ pred = predict(svmradi,dat[-train,])
 table(predict = pred, truth = dat[-train,]$y)
 
 # Tune radial model
-tune.out = tune(svm,y~., data=dat[train,], kernel="radial", ranges = list(cost=10^(-1:1),gamma=c(0.5,1:4)))
+tune.out = tune(svm,y~., data=dat[train,], kernel="radial", ranges = list(cost=10^(-1:3),gamma=c(0.5,1:4)))
 best = tune.out$best.model
 plot(best,dat[train,])
 
@@ -215,7 +215,7 @@ detach("package:plyr")
 weighted_model = as.data.frame(TF_IDF[order(TF_IDF$index), ])
 weighted_model = weighted_model %>%
   group_by(test = index %/% 1) %>%
-  summarize(TF = sum(TF), IDF = sum(IDF), TF_IDF = sum(TF_IDF))
+  summarize(TF = sum(TF), IDF = sum(IDF), TF_IDF = sum(TF_IDF), emotion = emotion[1])
 
 
 # Choose training set
@@ -226,7 +226,7 @@ dat = data.frame(x=cbind(weighted_model$TF, weighted_model$IDF), y=as.factor(wei
 train = sample(data_size,train_size)
 
 # Radial
-svmradi = svm(y~.,data=dat[train,], kernel="radial", gamma=1, cost=1)
+svmradi = svm(y~.,data=dat[train,], kernel="radial", gamma=1, cost=1, cross = 10)
 plot(svmradi, dat[train,])
 
 # Predict with radial
@@ -234,7 +234,7 @@ pred = predict(svmradi,dat[-train,])
 table(predict = pred, truth = dat[-train,]$y)
 
 # Tune radial model
-tune.out = tune(svm,y~., data=dat[train,], kernel="radial", ranges = list(cost=10^(-1:1),gamma=c(0.5,1:4)))
+tune.out = tune(svm,y~., data=dat[train,], kernel="radial", ranges = list(cost=10^(-1:3),gamma=c(0.5,1:4)))
 best = tune.out$best.model
 plot(best,dat[train,])
 
