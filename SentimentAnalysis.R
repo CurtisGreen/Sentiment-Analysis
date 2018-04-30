@@ -161,9 +161,10 @@ table(predict = pred, truth = dat[-train,]$y)
 ################## TF-IDF Sentiment ##################### 
 
 
-library(tidyverse)
-library(caret)
-library(LiblineaR)
+#library(tidyverse)
+#library(caret)
+#library(LiblineaR)
+library(plyr)
 
 # Pos/neg ratio of data
 counts = table(model$emotion)
@@ -171,62 +172,57 @@ colors = c("darkred", "darkgreen")
 barplot(counts, main = "Emotion distribution", ylab = "Count",
         col = colors)
 
-# Get all words in 3 dictionaries
-nrc = get_sentiments("nrc") %>%
-  filter(sentiment %in% c("positive",
-                              "negative"))
-bing_nrc_sent = rbind(get_sentiments("bing"), nrc)
-bing_nrc_sent = bing_nrc_sent[!duplicated(bing_nrc_sent$word),]
-all_words = inner_join(get_sentiments("afinn"), bing_nrc_sent)
-all_words = parsed_tweets %>%
-  inner_join(all_words)
+# Setup data for use
+IDF_words = parsed_tweets
+TF_words = parsed_tweets
+row = 1
 
-# Change text into binary
-all_words = all_words[!duplicated(all_words$word),]
-all_words$emotion[all_words$emotion == "Negative emotion"] = 0
-all_words$emotion[all_words$emotion == "Positive emotion"] = 1
-all_words$sentiment[all_words$sentiment == "negative"] = -1
-all_words$sentiment[all_words$sentiment == "positive"] = 1
+# TF per tweet
+while (row <= dim(TF_words)[1]){
+  condition = TF_words$index == TF_words[row,]$index
+  wcount = count(TF_words$word[condition])
+  colnames(wcount)[1] = "word"
+  temp_merge = inner_join(TF_words[condition,], wcount, by = "word")
+  TF_words$count_per_tweet[condition] = temp_merge$freq
+  this_length = length(TF_words$word[condition])
+  TF_words$num_words[condition] = this_length
+  row = row + this_length
+}
 
-# Append frequency to data
-freq_append = inner_join(parsed_tweets, all_words, by = "word")
-colnames(freq_append)[1] = "afinn_tfidf"
-freq_append$afinn_tfidf = 0
-freq = as.data.frame(table(freq_append$word))
+# IDF per database
+IDF_words = IDF_words[!duplicated(IDF_words$word),]
+freq = as.data.frame(table(parsed_tweets$word))
 colnames(freq)[1] = "word"
-tf_IDF = right_join(freq_append, freq, by = "word")
-num_words = dim(all_words)[1]
+IDF = as.data.frame(left_join(IDF_words, freq, by = "word"))
+num_tweets = dim(data)[1]
 
-# Find words per tweet
-word_count = freq_append %>% 
-  group_by(index.x) %>% 
-  summarize(word = paste(word, collapse = " "))
-word_count$total = str_count(word_count$word, '\\s+')+1
-word_count = right_join(word_count, tf_IDF, by = "index.x")
+TF_IDF_temp = right_join(TF_words, IDF, by = "word")
 
-# Calculate the TF-IDF weight
-tf_IDF$weight = (1/word_count$total)*log(num_words/tf_IDF$Freq)
-tf_IDF$afinn_tfidf = tf_IDF$weight * tf_IDF$score
-tf_IDF$bing_tfidf = tf_IDF$weight * as.numeric(tf_IDF$sentiment)
+TF_IDF = TF_IDF_temp
+TF_IDF = cbind.data.frame(TF_IDF_temp$index.x, TF_IDF_temp$emotion.x, TF_IDF_temp$word, stringsAsFactors = FALSE)
+colnames(TF_IDF) = c("index", "emotion", "word")
+TF_IDF$emotion[TF_IDF$emotion == "Negative emotion"] = 0
+TF_IDF$emotion[TF_IDF$emotion == "Positive emotion"] = 1
+TF_IDF$TF = (TF_IDF_temp$count_per_tweet/TF_IDF_temp$num_words)
+TF_IDF$IDF = log(num_tweets/TF_IDF_temp$Freq)
+TF_IDF$TF_IDF = TF_IDF$TF * TF_IDF$IDF
 
-# Combine the weights per tweet
-weighted_model = cbind.data.frame(tf_IDF$index.x, tf_IDF$afinn_tfidf, tf_IDF$bing_tfidf, as.numeric(tf_IDF$emotion.y))
-colnames(weighted_model) = c("index", "afinn", "bing", "emotion")
+# Remove overly common words
+test = TF_IDF[TF_IDF$IDF > 3.37,]
+
+# Aggregate by index
+detach("package:plyr")
+weighted_model = as.data.frame(TF_IDF[order(TF_IDF$index), ])
 weighted_model = weighted_model %>%
-  group_by(index = index %/% 1) %>%
-  summarise(afinn = sum(afinn), bing = sum(bing))
+  group_by(test = index %/% 1) %>%
+  summarize(TF = sum(TF), IDF = sum(IDF), TF_IDF = sum(TF_IDF))
 
-data$index = as.numeric(data$index)
-weighted_model = inner_join(data, weighted_model, by = "index")
-
-weighted_model$emotion[weighted_model$emotion == "Negative emotion"] = 0
-weighted_model$emotion[weighted_model$emotion == "Positive emotion"] = 1  
 
 # Choose training set
 data_size = dim(weighted_model)[1]
 train_size = floor(data_size * .7)
 
-dat = data.frame(x=cbind(weighted_model$afinn, weighted_model$bing), y=as.factor(weighted_model$emotion))
+dat = data.frame(x=cbind(weighted_model$TF, weighted_model$IDF), y=as.factor(weighted_model$emotion))
 train = sample(data_size,train_size)
 
 # Radial
@@ -245,4 +241,3 @@ plot(best,dat[train,])
 # Predict with tuned radial
 pred = predict(best,dat[-train,])
 table(predict = pred, truth = dat[-train,]$y)
-
