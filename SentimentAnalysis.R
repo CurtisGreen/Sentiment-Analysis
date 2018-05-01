@@ -164,7 +164,9 @@ table(predict = pred, truth = dat[-train,]$y)
 #library(tidyverse)
 #library(caret)
 #library(LiblineaR)
-library(plyr)
+library(tm)
+library(caret)
+#library(plyr)
 
 # Pos/neg ratio of data
 counts = table(model$emotion)
@@ -196,19 +198,29 @@ colnames(freq)[1] = "word"
 IDF = as.data.frame(left_join(IDF_words, freq, by = "word"))
 num_tweets = dim(data)[1]
 
+# Remove overly common words
 TF_IDF_temp = right_join(TF_words, IDF, by = "word")
-
+TF_IDF_temp = TF_IDF_temp[TF_IDF_temp$Freq < 500,]
 TF_IDF = TF_IDF_temp
 TF_IDF = cbind.data.frame(TF_IDF_temp$index.x, TF_IDF_temp$emotion.x, TF_IDF_temp$word, stringsAsFactors = FALSE)
 colnames(TF_IDF) = c("index", "emotion", "word")
 TF_IDF$emotion[TF_IDF$emotion == "Negative emotion"] = 0
 TF_IDF$emotion[TF_IDF$emotion == "Positive emotion"] = 1
+
+# Calculate TF_IDF
 TF_IDF$TF = (TF_IDF_temp$count_per_tweet/TF_IDF_temp$num_words)
 TF_IDF$IDF = log(num_tweets/TF_IDF_temp$Freq)
 TF_IDF$TF_IDF = TF_IDF$TF * TF_IDF$IDF
 
 # Remove overly common words
-TF_IDF = TF_IDF[TF_IDF$IDF > 3.37,]
+#TF_IDF = TF_IDF[TF_IDF$IDF > 3.37,]
+
+transpose = as.data.frame(t(freq))
+for (row in 1:nrow(TF_IDF)){
+  transpose[TF_IDF[row,]$index,] = TF_IDF[row,]
+}
+
+
 
 # Aggregate by index
 detach("package:plyr")
@@ -216,6 +228,7 @@ weighted_model = as.data.frame(TF_IDF[order(TF_IDF$index), ])
 weighted_model = weighted_model %>%
   group_by(test = index %/% 1) %>%
   summarize(TF = sum(TF), IDF = sum(IDF), TF_IDF = sum(TF_IDF), emotion = emotion[1])
+
 
 
 # Choose training set
@@ -226,18 +239,62 @@ dat = data.frame(x=cbind(weighted_model$TF, weighted_model$IDF), y=as.factor(wei
 train = sample(data_size,train_size)
 
 # Radial
-svmradi = svm(y~.,data=dat[train,], kernel="radial", gamma=1, cost=1000)
+svmradi = svm(y~.,data=dat[train,], kernel="radial", gamma=1, cost=10)
 plot(svmradi, dat[train,])
 
 # Predict with radial
 pred = predict(svmradi,dat[-train,])
 table(predict = pred, truth = dat[-train,]$y)
 
+
+
+
+
+
+
+
+
+
+
+train_dtm = DocumentTermMatrix(Corpus(VectorSource(data$tweet_text)))
+train_dtm_sparse = removeSparseTerms(train_dtm, .997)
+
+
+unweighted_dtm = weightTfIdf(train_dtm_sparse, normalize = FALSE)
+y = as.factor(data$emotion)
+df3 = data.frame(y,as.matrix(unweighted_dtm))
+
+
+dat=df3
+
+k <- 10
+folds = sample(rep(1:k, length.out = nrow(dat)), nrow(dat))
+
+z = lapply(1:k, function(x){
+  model = svm(y~., dat[folds != x, ], cost = 10, gamma=.5,kernel = "radial",probability = T)
+  pred = predict(model, dat[folds == x, ])
+  true = dat$y[folds == x]
+  return(data.frame(pred = pred, true = true))
+})
+
+z1 = do.call(rbind, z)
+caret::confusionMatrix(z1$pred, z1$true)
+
+
+
+
+
+
+
+
+
+
+
 # Tune radial model
-tune.out = tune(svm,y~., data=dat[train,], kernel="radial", ranges = list(cost=10^(-1:2),gamma=c(0.5,1:4)))
-best = tune.out$best.model
-plot(best,dat[train,])
+#tune.out = tune(svm,y~., data=dat[train,], kernel="radial", ranges = list(cost=10^(-1:2),gamma=c(0.5,1:4)))
+#best = tune.out$best.model
+#plot(best,dat[train,])
 
 # Predict with tuned radial
-pred = predict(best,dat[-train,])
-table(predict = pred, truth = dat[-train,]$y)
+#pred = predict(best,dat[-train,])
+#table(predict = pred, truth = dat[-train,]$y)
