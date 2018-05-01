@@ -173,128 +173,27 @@ counts = table(model$emotion)
 colors = c("darkred", "darkgreen")
 barplot(counts, main = "Emotion distribution", ylab = "Count",
         col = colors)
-
-# Setup data for use
-IDF_words = parsed_tweets
-TF_words = parsed_tweets
-row = 1
-
-# TF per tweet
-while (row <= dim(TF_words)[1]){
-  condition = TF_words$index == TF_words[row,]$index
-  wcount = count(TF_words$word[condition])
-  colnames(wcount)[1] = "word"
-  temp_merge = inner_join(TF_words[condition,], wcount, by = "word")
-  TF_words$count_per_tweet[condition] = temp_merge$freq
-  this_length = length(TF_words$word[condition])
-  TF_words$num_words[condition] = this_length
-  row = row + this_length
-}
-
-# IDF per database
-IDF_words = IDF_words[!duplicated(IDF_words$word),]
-freq = as.data.frame(table(parsed_tweets$word))
-colnames(freq)[1] = "word"
-IDF = as.data.frame(left_join(IDF_words, freq, by = "word"))
-num_tweets = dim(data)[1]
-
-# Remove overly common words
-TF_IDF_temp = right_join(TF_words, IDF, by = "word")
-TF_IDF_temp = TF_IDF_temp[TF_IDF_temp$Freq < 500,]
-TF_IDF = TF_IDF_temp
-TF_IDF = cbind.data.frame(TF_IDF_temp$index.x, TF_IDF_temp$emotion.x, TF_IDF_temp$word, stringsAsFactors = FALSE)
-colnames(TF_IDF) = c("index", "emotion", "word")
-TF_IDF$emotion[TF_IDF$emotion == "Negative emotion"] = 0
-TF_IDF$emotion[TF_IDF$emotion == "Positive emotion"] = 1
-
-# Calculate TF_IDF
-TF_IDF$TF = (TF_IDF_temp$count_per_tweet/TF_IDF_temp$num_words)
-TF_IDF$IDF = log(num_tweets/TF_IDF_temp$Freq)
-TF_IDF$TF_IDF = TF_IDF$TF * TF_IDF$IDF
-
-# Remove overly common words
-#TF_IDF = TF_IDF[TF_IDF$IDF > 3.37,]
-
-transpose = as.data.frame(t(freq))
-for (row in 1:nrow(TF_IDF)){
-  transpose[TF_IDF[row,]$index,] = TF_IDF[row,]
-}
-
-
-
-# Aggregate by index
-detach("package:plyr")
-weighted_model = as.data.frame(TF_IDF[order(TF_IDF$index), ])
-weighted_model = weighted_model %>%
-  group_by(test = index %/% 1) %>%
-  summarize(TF = sum(TF), IDF = sum(IDF), TF_IDF = sum(TF_IDF), emotion = emotion[1])
-
-
-
-# Choose training set
-data_size = dim(weighted_model)[1]
-train_size = floor(data_size * .7)
-
-dat = data.frame(x=cbind(weighted_model$TF, weighted_model$IDF), y=as.factor(weighted_model$emotion))
-train = sample(data_size,train_size)
-
-# Radial
-svmradi = svm(y~.,data=dat[train,], kernel="radial", gamma=1, cost=10)
-plot(svmradi, dat[train,])
-
-# Predict with radial
-pred = predict(svmradi,dat[-train,])
-table(predict = pred, truth = dat[-train,]$y)
-
-
-
-
-
-
-
-
-
-
-
+# Use tm library to setup TFIDF matrix
 train_dtm = DocumentTermMatrix(Corpus(VectorSource(data$tweet_text)))
 train_dtm_sparse = removeSparseTerms(train_dtm, .997)
 
-
+# Apply weights based on TFIDF
 unweighted_dtm = weightTfIdf(train_dtm_sparse, normalize = FALSE)
 y = as.factor(data$emotion)
-df3 = data.frame(y,as.matrix(unweighted_dtm))
+weighted_data = data.frame(y,as.matrix(unweighted_dtm))
 
-
-dat=df3
-
-k <- 10
+# Do 10K cross validation in SVM
+dat=weighted_data
+k = 10
 folds = sample(rep(1:k, length.out = nrow(dat)), nrow(dat))
-
-z = lapply(1:k, function(x){
-  model = svm(y~., dat[folds != x, ], cost = 10, gamma=.5,kernel = "radial",probability = T)
+dat_k = lapply(1:k, function(x){
+  model = svm(y~., dat[folds != x, ], gamma = .5, cost = 10, kernel = "radial",probability = T)
   pred = predict(model, dat[folds == x, ])
   true = dat$y[folds == x]
   return(data.frame(pred = pred, true = true))
 })
 
-z1 = do.call(rbind, z)
-caret::confusionMatrix(z1$pred, z1$true)
+# Output confusion matrix
+output = do.call(rbind, dat_k)
+caret::confusionMatrix(output$pred, output$true)
 
-
-
-
-
-
-
-
-
-
-
-# Tune radial model
-#tune.out = tune(svm,y~., data=dat[train,], kernel="radial", ranges = list(cost=10^(-1:2),gamma=c(0.5,1:4)))
-#best = tune.out$best.model
-#plot(best,dat[train,])
-
-# Predict with tuned radial
-#pred = predict(best,dat[-train,])
-#table(predict = pred, truth = dat[-train,]$y)
